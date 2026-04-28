@@ -6,6 +6,10 @@ import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import connectDB from './config/db.js';
 import errorHandler from './middleware/errorHandler.js';
+// Add these imports after existing route imports
+import resumeRoutes from './routes/resume.js';
+import aiRoutes from './routes/ai.js';
+import uploadRoutes from './routes/upload.js';
 
 // Import routes
 import authRoutes from './routes/auth.js';
@@ -74,6 +78,11 @@ app.get('/', (req, res) => {
     },
   });
 });
+
+// Add these routes after the auth route
+app.use('/api/resumes', resumeRoutes);
+app.use('/api/ai', aiRoutes);
+app.use('/api/upload', uploadRoutes);
 
 // Error handler (must be last)
 app.use(errorHandler);

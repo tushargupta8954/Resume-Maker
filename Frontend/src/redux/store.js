@@ -9,10 +9,13 @@ export const store = configureStore({
     auth: authReducer,
     resume: resumeReducer,
     ai: aiReducer,
-    ui: uiReducer
+    ui: uiReducer,
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({
-      serializableCheck: false
-    })
+      serializableCheck: false,
+    }),
+  devTools: import.meta.env.MODE !== 'production',
 });
+
+export default store;
