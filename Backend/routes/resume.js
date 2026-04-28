@@ -1,27 +1,29 @@
 import express from 'express';
-import { protect } from '../middleware/auth.js';
 import {
-  createResume,
   getResumes,
-  getResumeById,
+  getResume,
+  createResume,
   updateResume,
   deleteResume,
-  exportToPDF
+  duplicateResume,
+  shareResume,
+  getResumeByShareLink,
 } from '../controllers/resumeController.js';
+import { protect } from '../middleware/auth.js';
 
 const router = express.Router();
 
+// Public routes
+router.get('/share/:shareableLink', getResumeByShareLink);
+
+// Protected routes
 router.use(protect);
 
-router.route('/')
-  .post(createResume)
-  .get(getResumes);
+router.route('/').get(getResumes).post(createResume);
 
-router.route('/:id')
-  .get(getResumeById)
-  .put(updateResume)
-  .delete(deleteResume);
+router.route('/:id').get(getResume).put(updateResume).delete(deleteResume);
 
-router.get('/:id/export', exportToPDF);
+router.post('/:id/duplicate', duplicateResume);
+router.post('/:id/share', shareResume);
 
 export default router;
