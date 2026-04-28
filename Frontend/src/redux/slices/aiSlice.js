@@ -1,114 +1,228 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import axios from 'axios';
-import toast from 'react-hot-toast';
 
-const API_URL = '/api/ai';
+const API_URL = import.meta.env.VITE_API_URL;
 
+const initialState = {
+  generatedSummary: null,
+  enhancedExperience: null,
+  suggestedSkills: null,
+  atsScore: null,
+  optimization: null,
+  suggestions: [],
+  isLoading: false,
+  isError: false,
+  message: '',
+};
+
+const getAuthHeaders = (token) => ({
+  headers: {
+    Authorization: `Bearer ${token}`,
+  },
+});
+
+// Generate summary
 export const generateSummary = createAsyncThunk(
   'ai/generateSummary',
-  async ({ jobTitle, experience, skills }) => {
-    const token = localStorage.getItem('token');
-    const response = await axios.post(`${API_URL}/generate-summary`, 
-      { jobTitle, experience, skills },
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    return response.data.summary;
+  async (data, thunkAPI) => {
+    try {
+      const token = thunkAPI.getState().auth.token;
+      const response = await axios.post(
+        `${API_URL}/ai/generate-summary`,
+        data,
+        getAuthHeaders(token)
+      );
+      return response.data.data;
+    } catch (error) {
+      const message = error.response?.data?.message || error.message;
+      return thunkAPI.rejectWithValue(message);
+    }
   }
 );
 
-export const enhanceDescription = createAsyncThunk(
-  'ai/enhanceDescription',
-  async ({ jobTitle, description }) => {
-    const token = localStorage.getItem('token');
-    const response = await axios.post(`${API_URL}/enhance-description`,
-      { jobTitle, description },
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    return response.data.enhanced;
+// Enhance experience
+export const enhanceExperience = createAsyncThunk(
+  'ai/enhanceExperience',
+  async (data, thunkAPI) => {
+    try {
+      const token = thunkAPI.getState().auth.token;
+      const response = await axios.post(
+        `${API_URL}/ai/enhance-experience`,
+        data,
+        getAuthHeaders(token)
+      );
+      return response.data.data;
+    } catch (error) {
+      const message = error.response?.data?.message || error.message;
+      return thunkAPI.rejectWithValue(message);
+    }
   }
 );
 
+// Suggest skills
 export const suggestSkills = createAsyncThunk(
   'ai/suggestSkills',
-  async ({ jobRole, experience }) => {
-    const token = localStorage.getItem('token');
-    const response = await axios.post(`${API_URL}/suggest-skills`,
-      { jobRole, experience },
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    return response.data.skills;
+  async (data, thunkAPI) => {
+    try {
+      const token = thunkAPI.getState().auth.token;
+      const response = await axios.post(
+        `${API_URL}/ai/suggest-skills`,
+        data,
+        getAuthHeaders(token)
+      );
+      return response.data.data;
+    } catch (error) {
+      const message = error.response?.data?.message || error.message;
+      return thunkAPI.rejectWithValue(message);
+    }
   }
 );
 
-export const analyzeATS = createAsyncThunk(
-  'ai/analyzeATS',
-  async ({ resumeId, jobDescription }) => {
-    const token = localStorage.getItem('token');
-    const response = await axios.post(`${API_URL}/analyze-ats`,
-      { resumeId, jobDescription },
-      { headers: { Authorization: `Bearer ${token}` } }
+// Check ATS
+export const checkATS = createAsyncThunk('ai/checkATS', async (data, thunkAPI) => {
+  try {
+    const token = thunkAPI.getState().auth.token;
+    const response = await axios.post(
+      `${API_URL}/ai/ats-check`,
+      data,
+      getAuthHeaders(token)
     );
-    return response.data.analysis;
+    return response.data.data;
+  } catch (error) {
+    const message = error.response?.data?.message || error.message;
+    return thunkAPI.rejectWithValue(message);
+  }
+});
+
+// Optimize resume
+export const optimizeResume = createAsyncThunk(
+  'ai/optimizeResume',
+  async (data, thunkAPI) => {
+    try {
+      const token = thunkAPI.getState().auth.token;
+      const response = await axios.post(
+        `${API_URL}/ai/optimize-resume`,
+        data,
+        getAuthHeaders(token)
+      );
+      return response.data.data;
+    } catch (error) {
+      const message = error.response?.data?.message || error.message;
+      return thunkAPI.rejectWithValue(message);
+    }
   }
 );
 
-export const getResumeScore = createAsyncThunk(
-  'ai/getScore',
-  async (resumeId) => {
-    const token = localStorage.getItem('token');
-    const response = await axios.get(`${API_URL}/score/${resumeId}`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    return response.data.score;
+// Get suggestions
+export const getSuggestions = createAsyncThunk(
+  'ai/getSuggestions',
+  async (data, thunkAPI) => {
+    try {
+      const token = thunkAPI.getState().auth.token;
+      const response = await axios.post(
+        `${API_URL}/ai/suggestions`,
+        data,
+        getAuthHeaders(token)
+      );
+      return response.data.data;
+    } catch (error) {
+      const message = error.response?.data?.message || error.message;
+      return thunkAPI.rejectWithValue(message);
+    }
   }
 );
 
 const aiSlice = createSlice({
   name: 'ai',
-  initialState: {
-    summary: null,
-    enhancedDescription: null,
-    suggestedSkills: [],
-    atsAnalysis: null,
-    resumeScore: null,
-    isLoading: false
-  },
+  initialState,
   reducers: {
-    clearAIResults: (state) => {
-      state.summary = null;
-      state.enhancedDescription = null;
-      state.suggestedSkills = [];
-      state.atsAnalysis = null;
-      state.resumeScore = null;
-    }
+    reset: (state) => {
+      state.isLoading = false;
+      state.isError = false;
+      state.message = '';
+    },
+    clearAIData: (state) => {
+      state.generatedSummary = null;
+      state.enhancedExperience = null;
+      state.suggestedSkills = null;
+      state.atsScore = null;
+      state.optimization = null;
+      state.suggestions = [];
+    },
   },
   extraReducers: (builder) => {
     builder
+      // Generate summary
       .addCase(generateSummary.pending, (state) => {
         state.isLoading = true;
       })
       .addCase(generateSummary.fulfilled, (state, action) => {
         state.isLoading = false;
-        state.summary = action.payload;
-        toast.success('Professional summary generated!');
+        state.generatedSummary = action.payload;
       })
-      .addCase(generateSummary.rejected, (state) => {
+      .addCase(generateSummary.rejected, (state, action) => {
         state.isLoading = false;
-        toast.error('Failed to generate summary');
+        state.isError = true;
+        state.message = action.payload;
+      })
+      // Enhance experience
+      .addCase(enhanceExperience.pending, (state) => {
+        state.isLoading = true;
+      })
+      .addCase(enhanceExperience.fulfilled, (state, action) => {
+        state.isLoading = false;
+        state.enhancedExperience = action.payload;
+      })
+      .addCase(enhanceExperience.rejected, (state, action) => {
+        state.isLoading = false;
+        state.isError = true;
+        state.message = action.payload;
+      })
+      // Suggest skills
+      .addCase(suggestSkills.pending, (state) => {
+        state.isLoading = true;
       })
       .addCase(suggestSkills.fulfilled, (state, action) => {
+        state.isLoading = false;
         state.suggestedSkills = action.payload;
-        toast.success('Skills suggested!');
       })
-      .addCase(analyzeATS.fulfilled, (state, action) => {
-        state.atsAnalysis = action.payload;
-        toast.success('ATS analysis complete!');
+      .addCase(suggestSkills.rejected, (state, action) => {
+        state.isLoading = false;
+        state.isError = true;
+        state.message = action.payload;
       })
-      .addCase(getResumeScore.fulfilled, (state, action) => {
-        state.resumeScore = action.payload;
+      // Check ATS
+      .addCase(checkATS.pending, (state) => {
+        state.isLoading = true;
+      })
+      .addCase(checkATS.fulfilled, (state, action) => {
+        state.isLoading = false;
+        state.atsScore = action.payload;
+      })
+      .addCase(checkATS.rejected, (state, action) => {
+        state.isLoading = false;
+        state.isError = true;
+        state.message = action.payload;
+      })
+      // Optimize resume
+      .addCase(optimizeResume.pending, (state) => {
+        state.isLoading = true;
+      })
+      .addCase(optimizeResume.fulfilled, (state, action) => {
+        state.isLoading = false;
+        state.optimization = action.payload;
+      })
+      .addCase(optimizeResume.rejected, (state, action) => {
+        state.isLoading = false;
+        state.isError = true;
+        state.message = action.payload;
+      })
+      // Get suggestions
+      .addCase(getSuggestions.fulfilled, (state, action) => {
+        state.suggestions = action.payload;
       });
-  }
+  },
 });
 
-export const { clearAIResults } = aiSlice.actions;
+export const { reset, clearAIData } = aiSlice.actions;
 export default aiSlice.reducer;
