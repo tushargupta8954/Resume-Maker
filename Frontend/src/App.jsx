@@ -1,39 +1,84 @@
-import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { Provider } from 'react-redux';
-import { Toaster } from 'react-hot-toast';
-import { store } from './store/store';
-import Login from './pages/Login';
-import Register from './pages/Register';
-import Dashboard from './pages/Dashboard';
-import ResumeBuilder from './pages/ResumeBuilder';
+import { useEffect } from 'react';
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { useDispatch, useSelector } from 'react-redux';
+import { getCurrentUser } from './redux/slices/authSlice';
+
+// Pages
+import Login from './pages/auth/Login';
+import Register from './pages/auth/Register';
+import Dashboard from './pages/dashboard/Dashboard';
+import ResumeBuilder from './pages/builder/ResumeBuilder';
+import ResumeList from './pages/resumes/ResumeList';
+import Settings from './pages/settings/Settings';
+import Landing from './pages/Landing';
+import NotFound from './pages/NotFound';
+
+// Components
 import PrivateRoute from './components/PrivateRoute';
-import './index.css';
+import Loader from './components/common/Loader';
 
 function App() {
+  const dispatch = useDispatch();
+  const { user, token } = useSelector((state) => state.auth);
+
+  useEffect(() => {
+    if (token && !user) {
+      dispatch(getCurrentUser());
+    }
+  }, [dispatch, token, user]);
+
   return (
-    <Provider store={store}>
-      <Router>
-        <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-          <Toaster position="top-right" />
-          <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
-            <Route path="/" element={<Navigate to="/dashboard" />} />
-            <Route path="/dashboard" element={
-              <PrivateRoute>
-                <Dashboard />
-              </PrivateRoute>
-            } />
-            <Route path="/builder/:id?" element={
-              <PrivateRoute>
-                <ResumeBuilder />
-              </PrivateRoute>
-            } />
-          </Routes>
-        </div>
-      </Router>
-    </Provider>
+    <div className="min-h-screen bg-gray-50">
+      <Routes>
+        {/* Public Routes */}
+        <Route path="/" element={<Landing />} />
+        <Route
+          path="/login"
+          element={!user ? <Login /> : <Navigate to="/dashboard" replace />}
+        />
+        <Route
+          path="/register"
+          element={!user ? <Register /> : <Navigate to="/dashboard" replace />}
+        />
+
+        {/* Protected Routes */}
+        <Route
+          path="/dashboard"
+          element={
+            <PrivateRoute>
+              <Dashboard />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/resumes"
+          element={
+            <PrivateRoute>
+              <ResumeList />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/builder/:id?"
+          element={
+            <PrivateRoute>
+              <ResumeBuilder />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            <PrivateRoute>
+              <Settings />
+            </PrivateRoute>
+          }
+        />
+
+        {/* 404 */}
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+    </div>
   );
 }
 
