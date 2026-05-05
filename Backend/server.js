@@ -10,6 +10,7 @@ import errorHandler from './middleware/errorHandler.js';
 import resumeRoutes from './routes/resume.js';
 import aiRoutes from './routes/ai.js';
 import uploadRoutes from './routes/upload.js';
+import userRoutes from './routes/user.js';
 
 // Import routes
 import authRoutes from './routes/auth.js';
@@ -45,6 +46,8 @@ app.use(
     credentials: true,
   })
 );
+
+app.use('/api/users', userRoutes);
 
 // Logging middleware
 if (process.env.NODE_ENV === 'development') {
