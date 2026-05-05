@@ -1,9 +1,13 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 import path from 'path';
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    tailwindcss(), // ← Add Tailwind v4 Vite plugin
+  ],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -12,11 +16,6 @@ export default defineConfig({
       '@redux': path.resolve(__dirname, './src/redux'),
       '@services': path.resolve(__dirname, './src/services'),
       '@utils': path.resolve(__dirname, './src/utils'),
-    },
-  },
-  css: {
-    postcss: {
-      plugins: [],
     },
   },
   server: {

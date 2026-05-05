@@ -1,4 +1,5 @@
 import express from 'express';
+import { downloadResumePDF } from '../controllers/pdfController.js';
 import {
   getResumes,
   getResume,
@@ -15,6 +16,8 @@ const router = express.Router();
 
 // Public routes
 router.get('/share/:shareableLink', getResumeByShareLink);
+
+router.get('/:id/download', downloadResumePDF);
 
 // Protected routes
 router.use(protect);

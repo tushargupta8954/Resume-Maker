@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 @theme {
-  /* Custom Color Palette */
+  /* Colors */
   --color-primary-50: #eff6ff;
   --color-primary-100: #dbeafe;
   --color-primary-200: #bfdbfe;
@@ -26,114 +26,75 @@
   --color-secondary-900: #0f172a;
   --color-secondary-950: #020617;
 
-  /* Custom Fonts */
-  --font-family-sans: 'Inter', system-ui, -apple-system, sans-serif;
-  --font-family-display: 'Poppins', system-ui, -apple-system, sans-serif;
+  /* Fonts */
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-display: 'Poppins', system-ui, -apple-system, sans-serif;
 
-  /* Custom Shadows */
+  /* Shadows */
   --shadow-glow: 0 0 20px rgba(59, 130, 246, 0.5);
   --shadow-glow-lg: 0 0 30px rgba(59, 130, 246, 0.6);
 
-  /* Custom Animations */
+  /* Animations */
   --animate-fade-in: fadeIn 0.5s ease-in-out;
   --animate-slide-up: slideUp 0.5s ease-out;
   --animate-slide-down: slideDown 0.5s ease-out;
-  --animate-bounce-slow: bounce 3s infinite;
-
-  /* Custom Breakpoints (if needed) */
-  --breakpoint-xs: 475px;
-  --breakpoint-3xl: 1920px;
 }
 
-/* ===================================
-   KEYFRAME ANIMATIONS
-   =================================== */
-
 @keyframes fadeIn {
-  0% {
-    opacity: 0;
-  }
-  100% {
-    opacity: 1;
-  }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @keyframes slideUp {
-  0% {
-    transform: translateY(20px);
-    opacity: 0;
-  }
-  100% {
-    transform: translateY(0);
-    opacity: 1;
-  }
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
 }
 
 @keyframes slideDown {
-  0% {
-    transform: translateY(-20px);
-    opacity: 0;
-  }
-  100% {
-    transform: translateY(0);
-    opacity: 1;
-  }
+  from { transform: translateY(-20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
 }
 
 @keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+  to { transform: rotate(360deg); }
 }
 
-/* ===================================
-   BASE STYLES
-   =================================== */
-
+/* Base Styles */
 @layer base {
   * {
-    @apply box-border;
+    box-sizing: border-box;
   }
 
   html {
-    @apply scroll-smooth;
+    scroll-behavior: smooth;
   }
 
   body {
-    @apply bg-gray-50 text-gray-900 antialiased;
-    font-family: var(--font-family-sans);
+    background-color: #f9fafb;
+    color: #111827;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
   }
 
-  h1,
-  h2,
-  h3,
-  h4,
-  h5,
-  h6 {
-    font-family: var(--font-family-display);
-    @apply font-semibold;
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+    font-weight: 600;
   }
 }
 
-/* ===================================
-   COMPONENT UTILITIES
-   =================================== */
-
+/* Components */
 @layer components {
-  /* Button Styles */
   .btn {
     @apply px-4 py-2 rounded-lg font-medium transition-all duration-200 
            focus:outline-none focus:ring-2 focus:ring-offset-2;
   }
 
   .btn-primary {
-    @apply bg-primary-600 text-white hover:bg-primary-700 
-           focus:ring-primary-500 shadow-sm hover:shadow-md;
+    @apply bg-primary-600 text-white hover:bg-primary-700 focus:ring-primary-500;
   }
 
   .btn-secondary {
-    @apply bg-gray-200 text-gray-800 hover:bg-gray-300 
-           focus:ring-gray-400;
+    @apply bg-gray-200 text-gray-800 hover:bg-gray-300 focus:ring-gray-400;
   }
 
   .btn-outline {
@@ -141,14 +102,12 @@
            hover:bg-primary-50 focus:ring-primary-500;
   }
 
-  /* Input Styles */
   .input {
     @apply w-full px-4 py-2 border border-gray-300 rounded-lg 
            focus:outline-none focus:ring-2 focus:ring-primary-500 
            focus:border-transparent transition-all;
   }
 
-  /* Card Styles */
   .card {
     @apply bg-white rounded-xl shadow-lg p-6 transition-all duration-300;
   }
@@ -157,21 +116,16 @@
     @apply hover:shadow-xl hover:-translate-y-1;
   }
 
-  /* Gradient Background */
   .gradient-bg {
     @apply bg-gradient-to-br from-primary-500 via-primary-600 to-primary-700;
   }
 
-  /* Glass Effect */
   .glass-effect {
     @apply bg-white/10 backdrop-blur-lg border border-white/20;
   }
 }
 
-/* ===================================
-   UTILITY CLASSES
-   =================================== */
-
+/* Utilities */
 @layer utilities {
   .text-balance {
     text-wrap: balance;
@@ -185,59 +139,28 @@
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }
-
-  /* Animation Classes */
-  .animate-fade-in {
-    animation: var(--animate-fade-in);
-  }
-
-  .animate-slide-up {
-    animation: var(--animate-slide-up);
-  }
-
-  .animate-slide-down {
-    animation: var(--animate-slide-down);
-  }
-
-  .animate-bounce-slow {
-    animation: var(--animate-bounce-slow);
-  }
-
-  /* Shadow Utilities */
-  .shadow-glow {
-    box-shadow: var(--shadow-glow);
-  }
-
-  .shadow-glow-lg {
-    box-shadow: var(--shadow-glow-lg);
-  }
 }
 
-/* ===================================
-   CUSTOM SCROLLBAR
-   =================================== */
-
+/* Custom Scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  @apply bg-gray-100;
+  background-color: #f3f4f6;
 }
 
 ::-webkit-scrollbar-thumb {
-  @apply bg-primary-500 rounded-full;
+  background-color: #3b82f6;
+  border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  @apply bg-primary-600;
+  background-color: #2563eb;
 }
 
-/* ===================================
-   LOADING SPINNER
-   =================================== */
-
+/* Spinner */
 .spinner {
   border: 3px solid rgba(59, 130, 246, 0.1);
   border-radius: 50%;
@@ -247,121 +170,13 @@
   animation: spin 0.8s linear infinite;
 }
 
-/* ===================================
-   PRINT STYLES
-   =================================== */
-
+/* Print Styles */
 @media print {
   body {
-    @apply bg-white;
+    background-color: white;
   }
 
   .no-print {
     display: none !important;
   }
-
-  .card {
-    @apply shadow-none border border-gray-300;
-  }
-}
-
-/* ===================================
-   DARK MODE (OPTIONAL)
-   =================================== */
-
-@media (prefers-color-scheme: dark) {
-  /* Add dark mode styles here if needed */
-  /* Example:
-  body {
-    @apply bg-gray-900 text-gray-100;
-  }
-  */
-}
-
-/* ===================================
-   RESPONSIVE UTILITIES
-   =================================== */
-
-@media (max-width: 640px) {
-  .mobile-only {
-    display: block;
-  }
-  .desktop-only {
-    display: none;
-  }
-}
-
-@media (min-width: 641px) {
-  .mobile-only {
-    display: none;
-  }
-  .desktop-only {
-    display: block;
-  }
-}
-
-/* ===================================
-   ACCESSIBILITY
-   =================================== */
-
-.focus-visible:focus {
-  @apply outline-none ring-2 ring-primary-500 ring-offset-2;
-}
-
-/* Skip to main content link */
-.skip-to-main {
-  @apply absolute -top-full left-0 bg-primary-600 text-white 
-         px-4 py-2 transition-all focus:top-0 z-50;
-}
-
-/* ===================================
-   CUSTOM FORM ELEMENTS
-   =================================== */
-
-input[type="checkbox"]:checked {
-  @apply bg-primary-600 border-primary-600;
-}
-
-input[type="radio"]:checked {
-  @apply bg-primary-600 border-primary-600;
-}
-
-/* ===================================
-   TRANSITIONS
-   =================================== */
-
-.transition-base {
-  @apply transition-all duration-300 ease-in-out;
-}
-
-.transition-fast {
-  @apply transition-all duration-150 ease-in-out;
-}
-
-.transition-slow {
-  @apply transition-all duration-500 ease-in-out;
-}
-
-/* ===================================
-   ELEVATION SYSTEM
-   =================================== */
-
-.elevation-1 {
-  @apply shadow-sm;
-}
-
-.elevation-2 {
-  @apply shadow-md;
-}
-
-.elevation-3 {
-  @apply shadow-lg;
-}
-
-.elevation-4 {
-  @apply shadow-xl;
-}
-
-.elevation-5 {
-  @apply shadow-2xl;
 }

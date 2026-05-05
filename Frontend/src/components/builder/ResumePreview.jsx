@@ -1,6 +1,6 @@
 import ModernTemplate from './templates/ModernTemplate';
-import ClassicTemplate from './templates/ClassicTemplate';
-import MinimalTemplate from './templates/MinimalTemplate';
+// import ClassicTemplate from './templates/ClassicTemplate';
+// import MinimalTemplate from './templates/MinimalTemplate';
 
 const ResumePreview = ({ resume }) => {
   const renderTemplate = () => {
