@@ -9,6 +9,7 @@ import {
   FaCopy,
   FaShare,
   FaChartLine,
+  FaFileAlt,
 } from 'react-icons/fa';
 import { deleteResume, duplicateResume } from '../../redux/slices/resumeSlice';
 import { format } from 'date-fns';

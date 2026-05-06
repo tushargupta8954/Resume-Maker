@@ -6,7 +6,6 @@ import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import connectDB from './config/db.js';
 import errorHandler from './middleware/errorHandler.js';
-// Add these imports after existing route imports
 import resumeRoutes from './routes/resume.js';
 import aiRoutes from './routes/ai.js';
 import uploadRoutes from './routes/upload.js';
