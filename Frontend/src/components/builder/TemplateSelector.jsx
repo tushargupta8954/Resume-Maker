@@ -9,25 +9,28 @@ const TemplateSelector = ({ onClose }) => {
   const { currentResume } = useSelector((state) => state.resume);
 
   const templates = [
-    {
-      id: 'modern',
-      name: 'Modern',
-      description: 'Clean and contemporary design',
-      preview: '/templates/modern-preview.png',
-    },
-    {
-      id: 'classic',
-      name: 'Classic',
-      description: 'Traditional and professional',
-      preview: '/templates/classic-preview.png',
-    },
-    {
-      id: 'minimal',
-      name: 'Minimal',
-      description: 'Simple and elegant',
-      preview: '/templates/minimal-preview.png',
-    },
-  ];
+  {
+    id: 'modern',
+    name: 'Modern',
+    description: 'Clean and contemporary design with color accents',
+    preview: '/templates/modern-preview.png',
+    bestFor: 'Marketing, Business, General',
+  },
+  {
+    id: 'classic',
+    name: 'Classic',
+    description: 'Traditional black & white professional format',
+    preview: '/templates/classic-preview.png',
+    bestFor: 'Law, Finance, Academia',
+  },
+  {
+    id: 'minimal',
+    name: 'Minimal',
+    description: 'Simple and elegant with timeline layout',
+    preview: '/templates/minimal-preview.png',
+    bestFor: 'Tech, Design, Startups',
+  },
+];
 
   const handleSelect = (templateId) => {
     dispatch(updateCurrentResume({ template: templateId }));

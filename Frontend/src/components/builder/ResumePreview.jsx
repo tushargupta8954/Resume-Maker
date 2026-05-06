@@ -1,6 +1,6 @@
 import ModernTemplate from './templates/ModernTemplate';
-// import ClassicTemplate from './templates/ClassicTemplate';
-// import MinimalTemplate from './templates/MinimalTemplate';
+import ClassicTemplate from './templates/ClassicTemplate';
+import MinimalTemplate from './templates/MinimalTemplate';
 
 const ResumePreview = ({ resume }) => {
   const renderTemplate = () => {
@@ -19,11 +19,10 @@ const ResumePreview = ({ resume }) => {
   return (
     <div
       id="resume-preview"
-      className="bg-white shadow-2xl"
+      className="bg-white shadow-2xl mx-auto"
       style={{
         width: '8.5in',
         minHeight: '11in',
-        margin: '0 auto',
       }}
     >
       {renderTemplate()}
