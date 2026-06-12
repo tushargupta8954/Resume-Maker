@@ -1,29 +1,36 @@
-import multer from 'multer';
-import path from 'path';
+import multer from "multer";
+import path from "path";
 
-// Configure multer for memory storage
 const storage = multer.memoryStorage();
 
-// File filter
 const fileFilter = (req, file, cb) => {
-  const allowedTypes = /jpeg|jpg|png|gif|webp/;
-  const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-  const mimetype = allowedTypes.test(file.mimetype);
+  const allowedImageTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+  const allowedDocTypes = ["application/pdf"];
+  const allAllowed = [...allowedImageTypes, ...allowedDocTypes];
 
-  if (mimetype && extname) {
-    return cb(null, true);
+  if (allAllowed.includes(file.mimetype)) {
+    cb(null, true);
   } else {
-    cb(new Error('Only image files are allowed (jpeg, jpg, png, gif, webp)'));
+    cb(
+      new Error("Invalid file type. Only JPEG, PNG, WebP, and PDF files are allowed."),
+      false
+    );
   }
 };
 
-// Configure multer
-const upload = multer({
-  storage: storage,
+export const uploadImage = multer({
+  storage,
+  fileFilter,
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit
+    fileSize: 5 * 1024 * 1024, // 5MB
+    files: 1,
   },
-  fileFilter: fileFilter,
 });
 
-export default upload;
+export const uploadDocument = multer({
+  storage,
+  fileFilter,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB
+  },
+});
