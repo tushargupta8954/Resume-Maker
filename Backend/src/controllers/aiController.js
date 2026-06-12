@@ -1,433 +1,723 @@
-import { getGeminiModel } from '../config/gemini.js';
-import Resume from '../models/Resume.js';
-import { calculateATSScore, optimizeKeywords } from '../utils/atsScorer.js';
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import Resume from "../models/Resume.js";
+import Analytics from "../models/Analytics.js";
+import dotenv from "dotenv";
 
-// @desc    Generate professional summary using AI
-// @route   POST /api/ai/generate-summary
-// @access  Private
-export const generateSummary = async (req, res) => {
-  try {
-    const { jobTitle, experience, skills, tone = 'professional' } = req.body;
+dotenv.config();
 
-    if (!jobTitle) {
-      return res.status(400).json({
-        success: false,
-        message: 'Job title is required',
-      });
+// Initialize Gemini with error handling
+if (!process.env.GEMINI_API_KEY) {
+  console.error("GEMINI_API_KEY is not set in environment variables");
+}
+
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
+
+// Helper function to extract text from resume
+const extractTextFromResume = (resume) => {
+  if (!resume) return "";
+  
+  let text = "";
+  
+  // Add personal info
+  if (resume.personalInfo) {
+    const { fullName, email, phone, location, linkedin } = resume.personalInfo;
+    text += `${fullName || ""} ${email || ""} ${phone || ""} ${location || ""} ${linkedin || ""} `;
+  }
+  
+  // Add professional summary
+  if (resume.summary) {
+    text += resume.summary + " ";
+  }
+  
+  // Add work experience
+  if (resume.experience && Array.isArray(resume.experience)) {
+    resume.experience.forEach(exp => {
+      text += `${exp.position || ""} at ${exp.company || ""} ${exp.description || ""} `;
+      if (exp.achievements && Array.isArray(exp.achievements)) {
+        text += exp.achievements.join(" ") + " ";
+      }
+    });
+  }
+  
+  // Add education
+  if (resume.education && Array.isArray(resume.education)) {
+    resume.education.forEach(edu => {
+      text += `${edu.degree || ""} in ${edu.field || ""} from ${edu.institution || ""} `;
+    });
+  }
+  
+  // Add skills
+  if (resume.skills && Array.isArray(resume.skills)) {
+    text += resume.skills.join(" ") + " ";
+  }
+  
+  // Add projects
+  if (resume.projects && Array.isArray(resume.projects)) {
+    resume.projects.forEach(project => {
+      text += `${project.name || ""} ${project.description || ""} `;
+      if (project.technologies && Array.isArray(project.technologies)) {
+        text += project.technologies.join(" ") + " ";
+      }
+    });
+  }
+  
+  return text.trim();
+};
+
+const callGemini = async (prompt, maxRetries = 2) => {
+  let lastError;
+  const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+  
+  for (let i = 0; i <= maxRetries; i++) {
+    try {
+      if (!process.env.GEMINI_API_KEY) {
+        throw new Error("Gemini API key is not configured");
+      }
+      
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const text = response.text();
+      
+      if (!text || text.trim().length === 0) {
+        throw new Error("Empty response from Gemini API");
+      }
+      
+      return text;
+    } catch (error) {
+      lastError = error;
+      console.error(`Gemini API attempt ${i + 1} failed:`, error.message);
+
+      if (error.message?.includes("[429 Too Many Requests]")) {
+        const quotaError = new Error(
+          "Gemini quota exceeded. Please wait, enable billing, or set GEMINI_MODEL to a model with available quota."
+        );
+        quotaError.statusCode = 429;
+        throw quotaError;
+      }
+      
+      if (error.message?.includes("[404 Not Found]")) {
+        const modelError = new Error(
+          `Gemini model "${GEMINI_MODEL}" is not available for this API key. Set GEMINI_MODEL to a supported model.`
+        );
+        modelError.statusCode = 502;
+        throw modelError;
+      }
+      
+      if (i < maxRetries) {
+        await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1))); // Exponential backoff
+      }
     }
+  }
+  
+  throw new Error(`Gemini AI failed after ${maxRetries + 1} attempts: ${lastError?.message || "Unknown error"}`);
+};
 
-    const model = getGeminiModel();
-
-    const prompt = `Generate a compelling professional summary for a ${jobTitle} with ${
-      experience || 'relevant'
-    } experience. 
+// Helper to safely parse JSON from Gemini response
+const safeParseJSON = (rawResponse, fallback = {}) => {
+  try {
+    // Try to extract JSON from markdown code blocks
+    let jsonStr = rawResponse;
+    const codeBlockMatch = rawResponse.match(/```json\s*([\s\S]*?)\s*```/);
+    if (codeBlockMatch) {
+      jsonStr = codeBlockMatch[1];
+    }
     
-Skills: ${skills?.join(', ') || 'various technical skills'}
-
-Tone: ${tone}
-
-Requirements:
-- 3-4 sentences
-- Highlight key strengths and achievements
-- ATS-friendly
-- Engaging and professional
-- Focus on value proposition
-
-Generate only the summary text, no additional formatting or explanations.`;
-
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const summary = response.text();
-
-    res.status(200).json({
-      success: true,
-      data: {
-        summary: summary.trim(),
-      },
-      message: 'Summary generated successfully',
-    });
+    // Try to find JSON object in the response
+    const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]);
+    }
+    
+    return fallback;
   } catch (error) {
-    console.error('AI Summary Error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to generate summary',
-      error: error.message,
-    });
+    console.error("JSON parsing error:", error.message);
+    return fallback;
   }
 };
 
-// @desc    Enhance job experience description
-// @route   POST /api/ai/enhance-experience
+// @desc    Generate professional summary
+// @route   POST /api/ai/generate-summary
 // @access  Private
-export const enhanceExperience = async (req, res) => {
+export const generateSummary = async (req, res, next) => {
   try {
-    const { jobTitle, company, description, achievements } = req.body;
+    const { resumeId, jobTitle, experience, skills, tone = "professional" } = req.body;
 
-    if (!jobTitle || !description) {
+    // Validate input
+    if (!resumeId && !jobTitle && !skills) {
       return res.status(400).json({
         success: false,
-        message: 'Job title and description are required',
+        message: "Please provide at least resumeId, jobTitle, or skills"
       });
     }
 
-    const model = getGeminiModel();
+    const prompt = `You are an expert resume writer. Generate a compelling, ATS-optimized professional summary for a resume.
 
-    const prompt = `Enhance this job experience description for a resume:
-
-Job Title: ${jobTitle}
-Company: ${company || 'Company Name'}
-Current Description: ${description}
-${achievements ? `Achievements: ${achievements.join(', ')}` : ''}
+Job Title: ${jobTitle || "Professional"}
+Years of Experience: ${experience || "Not specified"}
+Key Skills: ${Array.isArray(skills) ? skills.join(", ") : skills || "Not specified"}
+Tone: ${tone}
 
 Requirements:
-- Make it more impactful and ATS-friendly
-- Use action verbs
-- Quantify achievements where possible
-- Keep it concise (3-5 bullet points)
-- Focus on results and impact
+- Write 3-4 impactful sentences
+- Start with a strong action word or professional title
+- Include quantifiable achievements if possible
+- Make it ATS-friendly with relevant keywords
+- Keep it under 100 words
+- Make it compelling and unique
+- Use first person but without "I"
 
-Return only the enhanced description as bullet points, one per line, starting with •`;
+Return ONLY the summary text, no explanation or formatting.`;
 
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const enhanced = response.text();
+    const summary = await callGemini(prompt);
 
-    // Parse bullet points
-    const bulletPoints = enhanced
-      .split('\n')
-      .filter((line) => line.trim())
-      .map((line) => line.replace(/^[•\-*]\s*/, '').trim());
+    if (!summary || summary.trim().length === 0) {
+      throw new Error("Generated summary is empty");
+    }
+
+    if (resumeId) {
+      const updatedResume = await Resume.findOneAndUpdate(
+        { _id: resumeId, user: req.user._id },
+        {
+          summary: summary.trim(),
+          aiSummaryGenerated: true,
+          lastAIInteraction: new Date(),
+          $inc: { aiEnhancements: 1 },
+        },
+        { new: true } // Return updated document
+      );
+
+      if (!updatedResume) {
+        return res.status(404).json({
+          success: false,
+          message: "Resume not found or you don't have permission"
+        });
+      }
+
+      await Analytics.create({
+        user: req.user._id,
+        resume: resumeId,
+        eventType: "ai_summary",
+        metadata: { jobRole: jobTitle || "Not specified" },
+      });
+    }
 
     res.status(200).json({
       success: true,
-      data: {
-        enhanced: bulletPoints,
-      },
-      message: 'Experience enhanced successfully',
+      message: "Professional summary generated! ✨",
+      data: { summary: summary.trim() },
     });
   } catch (error) {
-    console.error('AI Enhancement Error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to enhance experience',
-      error: error.message,
+    console.error("Generate summary error:", error);
+    next(error);
+  }
+};
+
+// @desc    Enhance experience description
+// @route   POST /api/ai/enhance-experience
+// @access  Private
+export const enhanceExperience = async (req, res, next) => {
+  try {
+    const { description, position, company, achievements = [] } = req.body;
+
+    if (!description && achievements.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide description or achievements to enhance"
+      });
+    }
+
+    const prompt = `You are an expert resume writer specializing in transforming work experience into powerful, ATS-optimized bullet points.
+
+Position: ${position || "Position"}
+Company: ${company || "Company"}
+Current Description: ${description || "Not provided"}
+${achievements.length ? `Current Achievements: ${achievements.join("\n")}` : ""}
+
+Transform this into 4-6 powerful bullet points that:
+- Start with strong action verbs (Led, Developed, Implemented, Increased, etc.)
+- Include specific metrics and numbers where inferred or appropriate
+- Follow the STAR method (Situation, Task, Action, Result)
+- Are ATS-optimized with industry keywords
+- Quantify impact wherever possible
+- Are concise but impactful (1-2 lines each)
+
+Return ONLY a JSON object with this exact structure (no markdown formatting):
+{
+  "description": "Enhanced paragraph description",
+  "achievements": ["bullet point 1", "bullet point 2", "bullet point 3", "bullet point 4"]
+}`;
+
+    const rawResponse = await callGemini(prompt);
+    
+    let enhanced = safeParseJSON(rawResponse, { 
+      description: rawResponse.trim(), 
+      achievements: [] 
     });
+
+    // Ensure achievements is an array
+    if (!Array.isArray(enhanced.achievements)) {
+      enhanced.achievements = [];
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Experience enhanced with AI! 🚀",
+      data: { enhanced },
+    });
+  } catch (error) {
+    console.error("Enhance experience error:", error);
+    next(error);
   }
 };
 
 // @desc    Suggest skills based on job role
 // @route   POST /api/ai/suggest-skills
 // @access  Private
-export const suggestSkills = async (req, res) => {
+export const suggestSkills = async (req, res, next) => {
   try {
-    const { jobTitle, industry, experienceLevel = 'mid' } = req.body;
+    const { jobRole, currentSkills = [], experienceLevel = "mid-level" } = req.body;
 
-    if (!jobTitle) {
+    if (!jobRole) {
       return res.status(400).json({
         success: false,
-        message: 'Job title is required',
+        message: "Job role is required"
       });
     }
 
-    const model = getGeminiModel();
+    const prompt = `You are a career advisor and skills expert. Suggest relevant skills for a resume.
 
-    const prompt = `Suggest relevant skills for a ${jobTitle} position in the ${
-      industry || 'tech'
-    } industry.
-
+Job Role: ${jobRole}
 Experience Level: ${experienceLevel}
+Current Skills: ${currentSkills.join(", ")}
 
-Provide:
-1. Technical Skills (10-12 items)
-2. Soft Skills (6-8 items)
+Provide a comprehensive list of skills categorized by type. Include:
+- Technical Skills (hard skills specific to the role)
+- Soft Skills (interpersonal and transferable skills)
+- Tools & Technologies
+- Industry-Specific Skills
 
-Requirements:
-- Industry-standard skills
-- ATS-friendly keywords
-- Relevant to current market demands
-- Organized by category
-
-Return as JSON format:
+Return ONLY a JSON object with this exact structure (no markdown formatting):
 {
-  "technical": ["skill1", "skill2", ...],
-  "soft": ["skill1", "skill2", ...]
-}`;
+  "technical": ["skill1", "skill2", "skill3"],
+  "soft": ["skill1", "skill2", "skill3"],
+  "tools": ["tool1", "tool2", "tool3"],
+  "industry": ["skill1", "skill2", "skill3"],
+  "trending": ["emerging skill1", "emerging skill2"]
+}
 
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    let text = response.text();
+Suggest 5-8 skills per category. Don't include already listed current skills.`;
 
-    // Clean up response to extract JSON
-    text = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-
-    const skills = JSON.parse(text);
+    const rawResponse = await callGemini(prompt);
+    const skills = safeParseJSON(rawResponse, {
+      technical: [],
+      soft: [],
+      tools: [],
+      industry: [],
+      trending: []
+    });
 
     res.status(200).json({
       success: true,
-      data: skills,
-      message: 'Skills suggested successfully',
+      message: "Skills suggested based on your role! 💡",
+      data: { skills },
     });
   } catch (error) {
-    console.error('AI Skills Suggestion Error:', error);
-
-    // Fallback skills if AI fails
-    const fallbackSkills = {
-      technical: [
-        'JavaScript',
-        'React',
-        'Node.js',
-        'Git',
-        'RESTful APIs',
-        'Agile',
-        'Problem Solving',
-      ],
-      soft: ['Communication', 'Teamwork', 'Leadership', 'Time Management', 'Adaptability'],
-    };
-
-    res.status(200).json({
-      success: true,
-      data: fallbackSkills,
-      message: 'Skills suggested successfully (using defaults)',
-    });
+    console.error("Suggest skills error:", error);
+    next(error);
   }
 };
 
-// @desc    Check ATS compatibility and score
-// @route   POST /api/ai/ats-check
+// @desc    Calculate ATS score and get improvements
+// @route   POST /api/ai/ats-score
 // @access  Private
-export const checkATSCompatibility = async (req, res) => {
+export const calculateATSScore = async (req, res, next) => {
   try {
     const { resumeId, jobDescription } = req.body;
 
     if (!resumeId) {
       return res.status(400).json({
         success: false,
-        message: 'Resume ID is required',
+        message: "Resume ID is required"
       });
     }
 
-    const resume = await Resume.findById(resumeId);
+    const resume = await Resume.findOne({
+      _id: resumeId,
+      user: req.user._id,
+    });
 
     if (!resume) {
       return res.status(404).json({
         success: false,
-        message: 'Resume not found',
+        message: "Resume not found.",
       });
     }
 
-    // Check ownership
-    if (resume.user.toString() !== req.user._id.toString()) {
-      return res.status(403).json({
+    const resumeText = extractTextFromResume(resume);
+
+    if (!resumeText || resumeText.trim().length === 0) {
+      return res.status(400).json({
         success: false,
-        message: 'Not authorized',
+        message: "Resume has no content to analyze. Please add some information first."
       });
     }
 
-    // Calculate ATS score
-    const atsResult = calculateATSScore(resume, jobDescription);
+    const prompt = `You are an expert ATS (Applicant Tracking System) analyzer. Analyze this resume for ATS compatibility.
 
-    // Update resume with ATS data
-    resume.atsScore = {
-      score: atsResult.score,
-      feedback: atsResult.feedback,
-      keywords: atsResult.keywords,
-      lastChecked: new Date(),
-    };
+RESUME CONTENT:
+${resumeText.substring(0, 3000)} ${jobDescription ? `\n\nJOB DESCRIPTION:\n${jobDescription.substring(0, 2000)}` : ""}
 
-    await resume.save();
+Analyze and provide detailed scoring. Return ONLY a valid JSON object with this exact structure (no markdown formatting):
+{
+  "overall": 75,
+  "sections": {
+    "keywords": 70,
+    "formatting": 85,
+    "readability": 80,
+    "completeness": 75,
+    "experience": 70
+  },
+  "improvements": [
+    "Add more quantifiable achievements with specific metrics",
+    "Include relevant keywords from the job description",
+    "Strengthen your professional summary"
+  ],
+  "keywords": {
+    "found": ["project management", "leadership", "agile"],
+    "missing": ["stakeholder management", "budget planning", "risk assessment"],
+    "density": 3.5
+  },
+  "detailedFeedback": {
+    "strengths": ["Clear structure", "Good use of action verbs"],
+    "weaknesses": ["Missing metrics", "Keywords need optimization"]
+  }
+}
+
+All scores must be integers between 0-100. Provide 5-8 specific, actionable improvements.`;
+
+    const rawResponse = await callGemini(prompt);
+    const atsData = safeParseJSON(rawResponse, null);
+
+    if (!atsData || typeof atsData.overall !== 'number') {
+      // Provide fallback data if parsing fails
+      const fallbackData = {
+        overall: 50,
+        sections: {
+          keywords: 50,
+          formatting: 50,
+          readability: 50,
+          completeness: 50,
+          experience: 50
+        },
+        improvements: ["Unable to analyze properly. Please ensure resume has sufficient content."],
+        keywords: { found: [], missing: [], density: 0 },
+        detailedFeedback: { strengths: [], weaknesses: [] }
+      };
+      
+      await Resume.findByIdAndUpdate(resumeId, {
+        atsScore: {
+          ...fallbackData,
+          lastChecked: new Date(),
+          jobDescription: jobDescription || "",
+        },
+        lastAIInteraction: new Date(),
+      });
+      
+      return res.status(200).json({
+        success: true,
+        message: "ATS analysis complete (with fallback data)! 📊",
+        data: { atsScore: fallbackData },
+      });
+    }
+
+    // Update resume ATS score
+    const prevScore = resume.atsScore?.overall || 0;
+    await Resume.findByIdAndUpdate(resumeId, {
+      atsScore: {
+        ...atsData,
+        lastChecked: new Date(),
+        jobDescription: jobDescription || "",
+      },
+      lastAIInteraction: new Date(),
+    });
+
+    await Analytics.create({
+      user: req.user._id,
+      resume: resumeId,
+      eventType: "ats_check",
+      metadata: {
+        atsScoreBefore: prevScore,
+        atsScoreAfter: atsData.overall,
+      },
+    });
 
     res.status(200).json({
       success: true,
-      data: atsResult,
-      message: 'ATS compatibility checked successfully',
+      message: "ATS analysis complete! 📊",
+      data: { atsScore: atsData },
     });
   } catch (error) {
-    console.error('ATS Check Error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to check ATS compatibility',
-      error: error.message,
-    });
+    console.error("ATS score error:", error);
+    next(error);
   }
 };
 
-// @desc    Optimize resume for specific job
-// @route   POST /api/ai/optimize-resume
+// @desc    Customize resume for job description
+// @route   POST /api/ai/customize-for-job
 // @access  Private
-export const optimizeForJob = async (req, res) => {
+export const customizeForJob = async (req, res, next) => {
   try {
-    const { resumeId, jobTitle, jobDescription } = req.body;
+    const { resumeId, jobDescription, jobTitle, companyName } = req.body;
 
     if (!resumeId || !jobDescription) {
       return res.status(400).json({
         success: false,
-        message: 'Resume ID and job description are required',
+        message: "Resume ID and job description are required"
       });
     }
 
-    const resume = await Resume.findById(resumeId);
+    const resume = await Resume.findOne({
+      _id: resumeId,
+      user: req.user._id,
+    });
 
     if (!resume) {
       return res.status(404).json({
         success: false,
-        message: 'Resume not found',
+        message: "Resume not found.",
       });
     }
 
-    // Check ownership
-    if (resume.user.toString() !== req.user._id.toString()) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized',
-      });
-    }
+    const resumeText = extractTextFromResume(resume);
 
-    const model = getGeminiModel();
+    const prompt = `You are an expert resume consultant. Analyze the resume and job description to provide specific customization suggestions.
 
-    // Extract current resume text
-    const currentSummary = resume.professionalSummary?.text || '';
+CURRENT RESUME:
+${resumeText.substring(0, 3000)}
 
-    const prompt = `Optimize this resume summary for the following job:
+JOB TITLE: ${jobTitle || "Not specified"}
+COMPANY: ${companyName || "Not specified"}
+JOB DESCRIPTION:
+${jobDescription.substring(0, 2000)}
 
-Job Title: ${jobTitle}
-Job Description: ${jobDescription}
-
-Current Summary: ${currentSummary}
-
-Provide:
-1. Optimized professional summary
-2. Key skills to highlight (10 items)
-3. Action items for improvement (5 items)
-
-Return as JSON:
+Provide specific, actionable customization recommendations. Return ONLY a valid JSON with this structure (no markdown):
 {
-  "summary": "optimized summary text",
-  "skills": ["skill1", "skill2", ...],
-  "improvements": ["tip1", "tip2", ...]
+  "summaryRewrite": "Rewritten summary tailored to this specific job...",
+  "keywordsToAdd": ["keyword1", "keyword2", "keyword3"],
+  "skillsToHighlight": ["skill1", "skill2", "skill3"],
+  "experienceAdjustments": [
+    {
+      "index": 0,
+      "suggestion": "Rewrite this experience to emphasize..."
+    }
+  ],
+  "missingElements": ["What's missing from resume", "Another gap"],
+  "customizationScore": 72,
+  "overallMatch": "This resume is a 72% match for this position. Key areas to improve...",
+  "priorityActions": ["Most important action", "Second priority", "Third priority"]
 }`;
 
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    let text = response.text();
+    const rawResponse = await callGemini(prompt);
+    const customization = safeParseJSON(rawResponse, { 
+      overallMatch: rawResponse.substring(0, 500) 
+    });
 
-    // Clean up response
-    text = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-
-    const optimization = JSON.parse(text);
-
-    // Save optimization data
-    resume.optimization = {
-      targetJobTitle: jobTitle,
+    // Update resume with target job info
+    await Resume.findByIdAndUpdate(resumeId, {
+      targetJobRole: jobTitle,
       targetJobDescription: jobDescription,
-      optimizedKeywords: optimization.skills,
-      industrySpecific: true,
-    };
-
-    await resume.save();
+      lastAIInteraction: new Date(),
+    });
 
     res.status(200).json({
       success: true,
-      data: optimization,
-      message: 'Resume optimized successfully',
+      message: "Resume customization analysis complete! 🎯",
+      data: { customization },
     });
   } catch (error) {
-    console.error('Resume Optimization Error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to optimize resume',
-      error: error.message,
-    });
+    console.error("Customize job error:", error);
+    next(error);
   }
 };
 
-// @desc    Get improvement suggestions
-// @route   POST /api/ai/suggestions
-// @access  Private
-export const getImprovementSuggestions = async (req, res) => {
-  try {
-    const { resumeId } = req.body;
+// Export remaining functions (optimizeKeywords, generateProjectDescription, getImprovementTips)
+// Similar fixes would be applied to these functions...
 
-    const resume = await Resume.findById(resumeId);
+export const optimizeKeywords = async (req, res, next) => {
+  try {
+    const { resumeId, industry } = req.body;
+
+    if (!resumeId) {
+      return res.status(400).json({
+        success: false,
+        message: "Resume ID is required"
+      });
+    }
+
+    const resume = await Resume.findOne({
+      _id: resumeId,
+      user: req.user._id,
+    });
 
     if (!resume) {
       return res.status(404).json({
         success: false,
-        message: 'Resume not found',
+        message: "Resume not found.",
       });
     }
 
-    // Check ownership
-    if (resume.user.toString() !== req.user._id.toString()) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized',
-      });
-    }
+    const resumeText = extractTextFromResume(resume);
 
-    const suggestions = [];
+    const prompt = `You are an SEO and ATS keyword optimization expert for resumes.
 
-    // Check various resume sections
-    if (!resume.professionalSummary?.text || resume.professionalSummary.text.length < 50) {
-      suggestions.push({
-        section: 'Professional Summary',
-        priority: 'high',
-        suggestion: 'Add a compelling professional summary (100-150 words)',
-      });
-    }
+RESUME: ${resumeText.substring(0, 3000)}
+INDUSTRY: ${industry || "General"}
 
-    if (!resume.experience || resume.experience.length === 0) {
-      suggestions.push({
-        section: 'Experience',
-        priority: 'high',
-        suggestion: 'Add your work experience with detailed descriptions',
-      });
-    }
+Analyze and provide keyword optimization. Return ONLY valid JSON with this structure (no markdown):
+{
+  "currentKeywords": ["existing strong keyword1", "existing keyword2"],
+  "suggestedKeywords": [
+    {"keyword": "project management", "priority": "high", "context": "Add to summary and experience"},
+    {"keyword": "agile methodology", "priority": "medium", "context": "Add to skills section"}
+  ],
+  "keywordDensity": 2.8,
+  "optimizedPhrases": [
+    "Instead of 'managed team', use 'led cross-functional team of 10 engineers'",
+    "Replace 'worked on projects' with 'delivered 5 high-impact projects'"
+  ],
+  "industryKeywords": ["term1", "term2", "term3"],
+  "actionVerbs": ["Led", "Implemented", "Developed", "Optimized", "Delivered"]
+}`;
 
-    const totalSkills =
-      (resume.skills?.technical?.length || 0) + (resume.skills?.soft?.length || 0);
-    if (totalSkills < 8) {
-      suggestions.push({
-        section: 'Skills',
-        priority: 'medium',
-        suggestion: 'Add more relevant skills (aim for 10-15 total skills)',
-      });
-    }
-
-    if (!resume.projects || resume.projects.length === 0) {
-      suggestions.push({
-        section: 'Projects',
-        priority: 'medium',
-        suggestion: 'Showcase your projects to stand out from other candidates',
-      });
-    }
-
-    if (!resume.certifications || resume.certifications.length === 0) {
-      suggestions.push({
-        section: 'Certifications',
-        priority: 'low',
-        suggestion: 'Add relevant certifications to boost credibility',
-      });
-    }
-
-    if (!resume.personalInfo?.linkedIn && !resume.personalInfo?.github) {
-      suggestions.push({
-        section: 'Contact Info',
-        priority: 'medium',
-        suggestion: 'Add LinkedIn or GitHub profile links',
-      });
-    }
+    const rawResponse = await callGemini(prompt);
+    const optimization = safeParseJSON(rawResponse, {});
 
     res.status(200).json({
       success: true,
-      data: suggestions,
-      message: 'Suggestions generated successfully',
+      message: "Keyword optimization analysis complete! 🔑",
+      data: { optimization },
     });
   } catch (error) {
-    console.error('Suggestions Error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to generate suggestions',
-      error: error.message,
+    console.error("Optimize keywords error:", error);
+    next(error);
+  }
+};
+
+export const generateProjectDescription = async (req, res, next) => {
+  try {
+    const { projectName, technologies, role, duration } = req.body;
+
+    if (!projectName) {
+      return res.status(400).json({
+        success: false,
+        message: "Project name is required"
+      });
+    }
+
+    const prompt = `Generate a compelling project description for a resume.
+
+Project Name: ${projectName}
+Technologies Used: ${Array.isArray(technologies) ? technologies.join(", ") : technologies || "Not specified"}
+Your Role: ${role || "Developer"}
+Duration: ${duration || "Not specified"}
+
+Create:
+1. A 2-3 sentence project description
+2. 3-4 bullet points highlighting key achievements and technical aspects
+
+Return ONLY valid JSON with this structure (no markdown):
+{
+  "description": "Built a [type of application] using [technologies] that [main purpose/impact]...",
+  "highlights": [
+    "Implemented [feature] resulting in [specific benefit]",
+    "Developed [component] using [technology] achieving [result]"
+  ]
+}`;
+
+    const rawResponse = await callGemini(prompt);
+    const projectData = safeParseJSON(rawResponse, { 
+      description: rawResponse,
+      highlights: [] 
     });
+
+    res.status(200).json({
+      success: true,
+      message: "Project description generated! 🛠️",
+      data: { project: projectData },
+    });
+  } catch (error) {
+    console.error("Generate project error:", error);
+    next(error);
+  }
+};
+
+export const getImprovementTips = async (req, res, next) => {
+  try {
+    const { resumeId } = req.body;
+
+    if (!resumeId) {
+      return res.status(400).json({
+        success: false,
+        message: "Resume ID is required"
+      });
+    }
+
+    const resume = await Resume.findOne({
+      _id: resumeId,
+      user: req.user._id,
+    });
+
+    if (!resume) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "Resume not found." 
+      });
+    }
+
+    const resumeText = extractTextFromResume(resume);
+    const completion = resume.completionPercentage || 0;
+
+    const prompt = `You are a professional resume coach. Analyze this resume and provide specific improvement tips.
+
+RESUME CONTENT: ${resumeText.substring(0, 3000)}
+COMPLETION: ${completion}%
+TEMPLATE: ${resume.template || "Standard"}
+ATS SCORE: ${resume.atsScore?.overall || "Not analyzed"}
+
+Provide personalized, actionable improvement tips. Return ONLY valid JSON with this structure (no markdown):
+{
+  "quickWins": [
+    {"tip": "Add your LinkedIn URL", "impact": "high", "effort": "low"},
+    {"tip": "Quantify your achievements", "impact": "high", "effort": "medium"}
+  ],
+  "contentImprovements": [
+    "Strengthen action verbs in experience section",
+    "Add a more compelling professional summary"
+  ],
+  "formatImprovements": [
+    "Consider adding a skills section",
+    "Break long paragraphs into bullet points"
+  ],
+  "missingInformation": ["Phone number", "GitHub profile", "Portfolio link"],
+  "priorityScore": 85,
+  "estimatedImprovement": "Following these tips could increase your ATS score by 15-20 points",
+  "nextStep": "The most impactful next step is to..."
+}`;
+
+    const rawResponse = await callGemini(prompt);
+    const tips = safeParseJSON(rawResponse, { 
+      contentImprovements: [rawResponse.substring(0, 200)],
+      quickWins: []
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Improvement tips generated! 💡",
+      data: { tips },
+    });
+  } catch (error) {
+    console.error("Improvement tips error:", error);
+    next(error);
   }
 };

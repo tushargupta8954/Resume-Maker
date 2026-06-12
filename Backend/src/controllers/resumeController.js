@@ -1,370 +1,406 @@
-import Resume from '../models/Resume.js';
-import User from '../models/User.js';
-import Analytics from '../models/Analytics.js';
+import Resume from "../models/Resume.js";
+import User from "../models/User.js";
+import Analytics from "../models/Analytics.js";
+import { paginate, generatePublicLink } from "../utils/helpers.js";
+import { v4 as uuidv4 } from "uuid";
 
-// @desc    Get all resumes for logged-in user
+// @desc    Get all user resumes
 // @route   GET /api/resumes
 // @access  Private
-export const getResumes = async (req, res) => {
+export const getResumes = async (req, res, next) => {
   try {
-    const resumes = await Resume.find({ user: req.user._id }).sort({ updatedAt: -1 });
+    const { page, limit, sort = "-createdAt", search, template, archived } = req.query;
+    const { skip, limit: limitNum, page: pageNum } = paginate(page, limit);
+
+    const query = {
+      user: req.user._id,
+      isArchived: archived === "true" ? true : false,
+    };
+
+    if (search) {
+      query.$or = [
+        { title: { $regex: search, $options: "i" } },
+        { "personalInfo.jobTitle": { $regex: search, $options: "i" } },
+        { tags: { $in: [new RegExp(search, "i")] } },
+      ];
+    }
+
+    if (template) query.template = template;
+
+    const [resumes, total] = await Promise.all([
+      Resume.find(query).sort(sort).skip(skip).limit(limitNum).select("-targetJobDescription"),
+      Resume.countDocuments(query),
+    ]);
 
     res.status(200).json({
       success: true,
-      count: resumes.length,
-      data: resumes,
+      data: {
+        resumes,
+        pagination: {
+          total,
+          page: pageNum,
+          limit: limitNum,
+          pages: Math.ceil(total / limitNum),
+        },
+      },
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+    next(error);
   }
 };
 
-// @desc    Get single resume by ID
+// @desc    Get single resume
 // @route   GET /api/resumes/:id
 // @access  Private
-export const getResume = async (req, res) => {
+export const getResume = async (req, res, next) => {
   try {
-    const resume = await Resume.findById(req.params.id);
+    const resume = await Resume.findOne({
+      _id: req.params.id,
+      user: req.user._id,
+    });
 
     if (!resume) {
       return res.status(404).json({
         success: false,
-        message: 'Resume not found',
+        message: "Resume not found.",
       });
     }
 
-    // Check ownership
-    if (resume.user.toString() !== req.user._id.toString()) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to access this resume',
-      });
-    }
-
-    // Track view analytics
-    let analytics = await Analytics.findOne({ resume: resume._id });
-    if (!analytics) {
-      analytics = await Analytics.create({
-        user: req.user._id,
-        resume: resume._id,
-      });
-    }
-
-    analytics.events.push({
-      eventType: 'view',
-      timestamp: new Date(),
-    });
-    analytics.updateMetrics();
-    await analytics.save();
-
-    resume.viewCount += 1;
-    await resume.save();
+    // Track view
+    resume.analytics.views += 1;
+    resume.analytics.lastViewed = new Date();
+    await resume.save({ validateBeforeSave: false });
 
     res.status(200).json({
       success: true,
-      data: resume,
+      data: { resume },
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+    next(error);
   }
 };
 
-// @desc    Create new resume
+// @desc    Create resume
 // @route   POST /api/resumes
 // @access  Private
-export const createResume = async (req, res) => {
+export const createResume = async (req, res, next) => {
   try {
-    const { title, template, personalInfo } = req.body;
+    const {
+      title,
+      template,
+      colorScheme,
+      personalInfo,
+      summary,
+      experience,
+      education,
+      skills,
+      projects,
+      certifications,
+      languages,
+      targetJobRole,
+    } = req.body;
 
-    // Create resume
+    // Add IDs to array items
+    const addIds = (arr) =>
+      arr?.map((item) => ({ ...item, id: item.id || uuidv4() })) || [];
+
     const resume = await Resume.create({
       user: req.user._id,
-      title: title || 'Untitled Resume',
-      template: template || 'modern',
-      personalInfo: {
-        fullName: personalInfo?.fullName || `${req.user.firstName} ${req.user.lastName}`,
-        email: personalInfo?.email || req.user.email,
-        phone: personalInfo?.phone || req.user.phone || '',
-        ...personalInfo,
-      },
+      title: title || "My Resume",
+      template: template || "modern",
+      colorScheme,
+      personalInfo,
+      summary,
+      experience: addIds(experience),
+      education: addIds(education),
+      skills: addIds(skills),
+      projects: addIds(projects),
+      certifications: addIds(certifications),
+      languages: addIds(languages),
+      targetJobRole,
     });
 
-    // Update user resume count
-    const user = await User.findById(req.user._id);
-    user.resumeCount += 1;
-    user.resumes.push(resume._id);
-    await user.save();
+    // Update user stats
+    await User.findByIdAndUpdate(req.user._id, {
+      $inc: { "stats.resumesCreated": 1 },
+    });
 
-    // Create analytics record
+    // Track analytics
     await Analytics.create({
       user: req.user._id,
       resume: resume._id,
+      eventType: "resume_create",
+      metadata: { templateUsed: template || "modern" },
     });
 
     res.status(201).json({
       success: true,
-      data: resume,
-      message: 'Resume created successfully',
+      message: "Resume created successfully! 🎉",
+      data: { resume },
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+    next(error);
   }
 };
 
 // @desc    Update resume
 // @route   PUT /api/resumes/:id
 // @access  Private
-export const updateResume = async (req, res) => {
+export const updateResume = async (req, res, next) => {
   try {
-    let resume = await Resume.findById(req.params.id);
+    const resume = await Resume.findOne({
+      _id: req.params.id,
+      user: req.user._id,
+    });
 
     if (!resume) {
       return res.status(404).json({
         success: false,
-        message: 'Resume not found',
+        message: "Resume not found.",
       });
     }
 
-    // Check ownership
-    if (resume.user.toString() !== req.user._id.toString()) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to update this resume',
-      });
-    }
+    const {
+      title,
+      template,
+      colorScheme,
+      font,
+      personalInfo,
+      summary,
+      experience,
+      education,
+      skills,
+      projects,
+      certifications,
+      languages,
+      awards,
+      volunteerWork,
+      customSections,
+      sectionOrder,
+      targetJobRole,
+      targetJobDescription,
+      tags,
+      notes,
+      isDraft,
+      isPublic,
+    } = req.body;
 
-    // Update resume
-    resume = await Resume.findByIdAndUpdate(req.params.id, req.body, {
-      new: true,
-      runValidators: true,
+    const addIds = (arr) =>
+      arr?.map((item) => ({ ...item, id: item.id || uuidv4() }));
+
+    // Build update object
+    const updateData = {
+      ...(title !== undefined && { title }),
+      ...(template !== undefined && { template }),
+      ...(colorScheme !== undefined && { colorScheme }),
+      ...(font !== undefined && { font }),
+      ...(personalInfo !== undefined && { personalInfo }),
+      ...(summary !== undefined && { summary }),
+      ...(experience !== undefined && { experience: addIds(experience) }),
+      ...(education !== undefined && { education: addIds(education) }),
+      ...(skills !== undefined && { skills: addIds(skills) }),
+      ...(projects !== undefined && { projects: addIds(projects) }),
+      ...(certifications !== undefined && {
+        certifications: addIds(certifications),
+      }),
+      ...(languages !== undefined && { languages: addIds(languages) }),
+      ...(awards !== undefined && { awards: addIds(awards) }),
+      ...(volunteerWork !== undefined && {
+        volunteerWork: addIds(volunteerWork),
+      }),
+      ...(customSections !== undefined && { customSections }),
+      ...(sectionOrder !== undefined && { sectionOrder }),
+      ...(targetJobRole !== undefined && { targetJobRole }),
+      ...(targetJobDescription !== undefined && { targetJobDescription }),
+      ...(tags !== undefined && { tags }),
+      ...(notes !== undefined && { notes }),
+      ...(isDraft !== undefined && { isDraft }),
+      ...(isPublic !== undefined && {
+        isPublic,
+        publicLink: isPublic ? generatePublicLink(resume.slug) : null,
+      }),
+      $inc: { version: 1 },
+    };
+
+    const updatedResume = await Resume.findByIdAndUpdate(
+      req.params.id,
+      updateData,
+      { new: true, runValidators: true }
+    );
+
+    // Track edit
+    await Analytics.create({
+      user: req.user._id,
+      resume: resume._id,
+      eventType: "resume_edit",
     });
-
-    // Track edit analytics
-    const analytics = await Analytics.findOne({ resume: resume._id });
-    if (analytics) {
-      analytics.events.push({
-        eventType: 'edit',
-        timestamp: new Date(),
-      });
-      await analytics.save();
-    }
 
     res.status(200).json({
       success: true,
-      data: resume,
-      message: 'Resume updated successfully',
+      message: "Resume updated successfully.",
+      data: { resume: updatedResume },
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+    next(error);
   }
 };
 
 // @desc    Delete resume
 // @route   DELETE /api/resumes/:id
 // @access  Private
-export const deleteResume = async (req, res) => {
+export const deleteResume = async (req, res, next) => {
   try {
-    const resume = await Resume.findById(req.params.id);
+    const resume = await Resume.findOneAndDelete({
+      _id: req.params.id,
+      user: req.user._id,
+    });
 
     if (!resume) {
       return res.status(404).json({
         success: false,
-        message: 'Resume not found',
+        message: "Resume not found.",
       });
     }
-
-    // Check ownership
-    if (resume.user.toString() !== req.user._id.toString()) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to delete this resume',
-      });
-    }
-
-    await resume.deleteOne();
-
-    // Update user resume count
-    const user = await User.findById(req.user._id);
-    user.resumeCount -= 1;
-    user.resumes = user.resumes.filter((id) => id.toString() !== req.params.id);
-    await user.save();
-
-    // Delete analytics
-    await Analytics.deleteOne({ resume: req.params.id });
 
     res.status(200).json({
       success: true,
-      message: 'Resume deleted successfully',
+      message: "Resume deleted successfully.",
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+    next(error);
   }
 };
 
 // @desc    Duplicate resume
 // @route   POST /api/resumes/:id/duplicate
 // @access  Private
-export const duplicateResume = async (req, res) => {
+export const duplicateResume = async (req, res, next) => {
   try {
-    const originalResume = await Resume.findById(req.params.id);
+    const originalResume = await Resume.findOne({
+      _id: req.params.id,
+      user: req.user._id,
+    });
 
     if (!originalResume) {
       return res.status(404).json({
         success: false,
-        message: 'Resume not found',
+        message: "Resume not found.",
       });
     }
 
-    // Check ownership
-    if (originalResume.user.toString() !== req.user._id.toString()) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to duplicate this resume',
-      });
-    }
-
-    // Create duplicate
     const resumeData = originalResume.toObject();
     delete resumeData._id;
+    delete resumeData.slug;
     delete resumeData.createdAt;
     delete resumeData.updatedAt;
-    delete resumeData.shareableLink;
-    delete resumeData.pdfUrl;
+    delete resumeData.__v;
     resumeData.title = `${resumeData.title} (Copy)`;
-    resumeData.downloadCount = 0;
-    resumeData.viewCount = 0;
+    resumeData.analytics = { views: 0, downloads: 0, shares: 0 };
+    resumeData.version = 1;
 
     const duplicatedResume = await Resume.create(resumeData);
 
-    // Update user
-    const user = await User.findById(req.user._id);
-    user.resumeCount += 1;
-    user.resumes.push(duplicatedResume._id);
-    await user.save();
-
-    // Create analytics
-    await Analytics.create({
-      user: req.user._id,
-      resume: duplicatedResume._id,
-    });
-
     res.status(201).json({
       success: true,
-      data: duplicatedResume,
-      message: 'Resume duplicated successfully',
+      message: "Resume duplicated successfully.",
+      data: { resume: duplicatedResume },
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+    next(error);
   }
 };
 
-// @desc    Generate shareable link
-// @route   POST /api/resumes/:id/share
+// @desc    Archive/Unarchive resume
+// @route   PATCH /api/resumes/:id/archive
 // @access  Private
-export const shareResume = async (req, res) => {
+export const toggleArchiveResume = async (req, res, next) => {
   try {
-    const resume = await Resume.findById(req.params.id);
+    const resume = await Resume.findOne({
+      _id: req.params.id,
+      user: req.user._id,
+    });
 
     if (!resume) {
       return res.status(404).json({
         success: false,
-        message: 'Resume not found',
+        message: "Resume not found.",
       });
     }
 
-    // Check ownership
-    if (resume.user.toString() !== req.user._id.toString()) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to share this resume',
-      });
-    }
-
-    // Generate shareable link if not exists
-    if (!resume.shareableLink) {
-      resume.generateShareableLink();
-      await resume.save();
-    }
-
-    // Track share analytics
-    const analytics = await Analytics.findOne({ resume: resume._id });
-    if (analytics) {
-      analytics.events.push({
-        eventType: 'share',
-        timestamp: new Date(),
-      });
-      analytics.updateMetrics();
-      await analytics.save();
-    }
-
-    const shareUrl = `${process.env.FRONTEND_URL}/share/${resume.shareableLink}`;
+    resume.isArchived = !resume.isArchived;
+    await resume.save({ validateBeforeSave: false });
 
     res.status(200).json({
       success: true,
-      data: {
-        shareableLink: resume.shareableLink,
-        shareUrl,
-      },
-      message: 'Shareable link generated successfully',
+      message: `Resume ${resume.isArchived ? "archived" : "unarchived"} successfully.`,
+      data: { resume },
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+    next(error);
   }
 };
 
-// @desc    Get resume by shareable link
-// @route   GET /api/resumes/share/:shareableLink
-// @access  Public
-export const getResumeByShareLink = async (req, res) => {
+// @desc    Track resume download
+// @route   POST /api/resumes/:id/download
+// @access  Private
+export const trackDownload = async (req, res, next) => {
   try {
-    const resume = await Resume.findOne({ shareableLink: req.params.shareableLink });
+    const resume = await Resume.findOneAndUpdate(
+      { _id: req.params.id, user: req.user._id },
+      {
+        $inc: { "analytics.downloads": 1 },
+        "analytics.lastDownloaded": new Date(),
+      },
+      { new: true }
+    );
+
+    if (!resume) {
+      return res.status(404).json({ success: false, message: "Resume not found." });
+    }
+
+    // Update user total downloads
+    await User.findByIdAndUpdate(req.user._id, {
+      $inc: { "stats.totalDownloads": 1 },
+    });
+
+    await Analytics.create({
+      user: req.user._id,
+      resume: resume._id,
+      eventType: "resume_download",
+    });
+
+    res.status(200).json({ success: true, message: "Download tracked." });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Get public resume
+// @route   GET /api/resumes/public/:slug
+// @access  Public
+export const getPublicResume = async (req, res, next) => {
+  try {
+    const resume = await Resume.findOne({
+      slug: req.params.slug,
+      isPublic: true,
+      isArchived: false,
+    }).populate("user", "firstName lastName profileImage");
 
     if (!resume) {
       return res.status(404).json({
         success: false,
-        message: 'Resume not found',
+        message: "Resume not found or not public.",
       });
     }
 
-    if (resume.visibility === 'private') {
-      return res.status(403).json({
-        success: false,
-        message: 'This resume is private',
-      });
-    }
-
-    resume.viewCount += 1;
-    await resume.save();
+    resume.analytics.views += 1;
+    await resume.save({ validateBeforeSave: false });
 
     res.status(200).json({
       success: true,
-      data: resume,
+      data: { resume },
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+    next(error);
   }
 };
