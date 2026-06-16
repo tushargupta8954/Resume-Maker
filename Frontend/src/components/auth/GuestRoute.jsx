@@ -1,0 +1,15 @@
+import { useSelector } from "react-redux";
+import { Navigate } from "react-router-dom";
+import { selectIsAuthenticated } from "../../features/auth/authSlice.js";
+
+const GuestRoute = ({ children }) => {
+  const isAuthenticated = useSelector(selectIsAuthenticated);
+
+  if (isAuthenticated) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return children;
+};
+
+export default GuestRoute;
